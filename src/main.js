@@ -158,26 +158,57 @@ let nameBases = Names.getNameBases(); // cultures-related data
 let color = d3.scaleSequential(d3.interpolateSpectral); // default color scheme
 const lineGen = d3.line().curve(d3.curveBasis); // d3 line generator with default curve interpolation
 
-// d3 zoom behavior
-let scale = 1;
-let viewX = 0;
-let viewY = 0;
+//#region d3 zoom behavior
+let d3scale = 1;
+let d3view_x = 0;
+let d3view_y = 0;
 
-function onZoom() {
+function checkIfMoved() {
   const {k, x, y} = d3.event.transform;
 
-  const isScaleChanged = Boolean(scale - k);
-  const isPositionChanged = Boolean(viewX - x || viewY - y);
-  if (!isScaleChanged && !isPositionChanged) return;
+  const isScaleChanged = d3scale !== k;
+  const isPositionChanged = d3view_x !== x || d3view_y !== y;
 
-  scale = k;
-  viewX = x;
-  viewY = y;
+  d3scale = k;
+  d3view_x = x;
+  d3view_y = y;
 
-  handleZoom(isScaleChanged, isPositionChanged);
+  return {isScaleChanged, isPositionChanged};
+}
+
+function onZoom() {
+  const {isScaleChanged, isPositionChanged} = checkIfMoved();
+  if (isScaleChanged || isPositionChanged) handleZoom(isScaleChanged, isPositionChanged);
+}
+
+function handleZoom(isScaleChanged, isPositionChanged) {
+  viewbox.attr("transform", `translate(${d3view_x} ${d3view_y}) scale(${d3scale})`);
+
+  if (isPositionChanged) drawCoordinates();
+
+  if (isScaleChanged) {
+    invokeActiveZooming();
+    drawScaleBar(scaleBar, d3scale);
+    fitScaleBar(scaleBar, svgWidth, svgHeight);
+  }
+
+  // zoom image converter overlay
+  if (customization === 1) {
+    const canvas = document.getElementById("canvas");
+    if (!canvas || canvas.style.opacity === "0") return;
+
+    const img = document.getElementById("imageToConvert");
+    if (!img) return;
+
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(d3scale, 0, 0, d3scale, d3view_x, d3view_y);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  }
 }
 const onZoomDebouced = debounce(onZoom, 50);
 const zoom = d3.zoom().scaleExtent([1, 20]).on("zoom", onZoomDebouced);
+//#endregion
 
 // default options, based on Earth data
 let options = {
@@ -422,32 +453,6 @@ function findBurgForMFCG(params) {
   tip("Here stands the glorious city of " + b.name, true, "success", 15000);
 }
 
-function handleZoom(isScaleChanged, isPositionChanged) {
-  viewbox.attr("transform", `translate(${viewX} ${viewY}) scale(${scale})`);
-
-  if (isPositionChanged) drawCoordinates();
-
-  if (isScaleChanged) {
-    invokeActiveZooming();
-    drawScaleBar(scaleBar, scale);
-    fitScaleBar(scaleBar, svgWidth, svgHeight);
-  }
-
-  // zoom image converter overlay
-  if (customization === 1) {
-    const canvas = document.getElementById("canvas");
-    if (!canvas || canvas.style.opacity === "0") return;
-
-    const img = document.getElementById("imageToConvert");
-    if (!img) return;
-
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(scale, 0, 0, scale, viewX, viewY);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  }
-}
-
 // Zoom to a specific point
 function zoomTo(x, y, z = 8, d = 2000) {
   const transform = d3.zoomIdentity.translate(x * -z + graphWidth / 2, y * -z + graphHeight / 2).scale(z);
@@ -462,8 +467,8 @@ function resetZoom(d = 1000) {
 // calculate x y extreme points of viewBox
 function getViewBoxExtent() {
   return [
-    [Math.abs(viewX / scale), Math.abs(viewY / scale)],
-    [Math.abs(viewX / scale) + graphWidth / scale, Math.abs(viewY / scale) + graphHeight / scale]
+    [Math.abs(d3view_x / d3scale), Math.abs(d3view_y / d3scale)],
+    [Math.abs(d3view_x / d3scale) + graphWidth / d3scale, Math.abs(d3view_y / d3scale) + graphHeight / d3scale]
   ];
 }
 
@@ -473,7 +478,7 @@ function invokeActiveZooming() {
 
   if (coastline.select("#sea_island").size() && +coastline.select("#sea_island").attr("auto-filter")) {
     // toggle shade/blur filter for coatline on zoom
-    const filter = scale > 1.5 && scale <= 2.6 ? null : scale > 2.6 ? "url(#blurFilter)" : "url(#dropShadow)";
+    const filter = d3scale > 1.5 && d3scale <= 2.6 ? null : d3scale > 2.6 ? "url(#blurFilter)" : "url(#dropShadow)";
     coastline.select("#sea_island").attr("filter", filter);
   }
 
@@ -482,10 +487,10 @@ function invokeActiveZooming() {
     labels.selectAll("g").each(function () {
       if (this.id === "burgLabels") return;
       const desired = +this.dataset.size;
-      const relative = Math.max(rn((desired + desired / scale) / 2, 2), 1);
+      const relative = Math.max(rn((desired + desired / d3scale) / 2, 2), 1);
       if (rescaleLabels.checked) this.setAttribute("font-size", relative);
 
-      const hidden = hideLabels.checked && (relative * scale < 6 || relative * scale > 60);
+      const hidden = hideLabels.checked && (relative * d3scale < 6 || relative * d3scale > 60);
       if (hidden) this.classList.add("hidden");
       else this.classList.remove("hidden");
     });
@@ -494,7 +499,7 @@ function invokeActiveZooming() {
   // rescale emblems on zoom
   if (emblems.style("display") !== "none") {
     emblems.selectAll("g").each(function () {
-      const size = this.getAttribute("font-size") * scale;
+      const size = this.getAttribute("font-size") * d3scale;
       const hidden = hideEmblems.checked && (size < 25 || size > 300);
       if (hidden) this.classList.add("hidden");
       else this.classList.remove("hidden");
@@ -506,13 +511,13 @@ function invokeActiveZooming() {
   // turn off ocean pattern if scale is big (improves performance)
   oceanPattern
     .select("rect")
-    .attr("fill", scale > 10 ? "#fff" : "url(#oceanic)")
-    .attr("opacity", scale > 10 ? 0.2 : null);
+    .attr("fill", d3scale > 10 ? "#fff" : "url(#oceanic)")
+    .attr("opacity", d3scale > 10 ? 0.2 : null);
 
   // change states halo width
   if (!customization && !isOptimized) {
     const desired = +statesHalo.attr("data-width");
-    const haloSize = rn(desired / scale ** 0.8, 2);
+    const haloSize = rn(desired / d3scale ** 0.8, 2);
     statesHalo.attr("stroke-width", haloSize).style("display", haloSize > 0.1 ? "block" : "none");
   }
 
@@ -523,7 +528,7 @@ function invokeActiveZooming() {
       const el = !hidden && document.getElementById(`marker${i}`);
       if (!el) return;
 
-      const zoomedSize = Math.max(rn(size / 5 + 24 / scale, 2), 1);
+      const zoomedSize = Math.max(rn(size / 5 + 24 / d3scale, 2), 1);
       el.setAttribute("width", zoomedSize);
       el.setAttribute("height", zoomedSize);
       el.setAttribute("x", rn(x - zoomedSize / 2, 1));
@@ -532,7 +537,7 @@ function invokeActiveZooming() {
 
   // rescale rulers to have always the same size
   if (ruler.style("display") !== "none") {
-    const size = rn((10 / scale ** 0.3) * 2, 2);
+    const size = rn((10 / d3scale ** 0.3) * 2, 2);
     ruler.selectAll("text").attr("font-size", size);
   }
 }
@@ -656,7 +661,7 @@ async function generate(options) {
     Markers.generate();
     addZones();
 
-    drawScaleBar(scaleBar, scale);
+    drawScaleBar(scaleBar, d3scale);
     Names.getMapName();
 
     WARN && console.warn(`TOTAL: ${rn((performance.now() - timeStart) / 1000, 2)}s`);
