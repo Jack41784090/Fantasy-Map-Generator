@@ -535,98 +535,100 @@ class Planimeter extends Measurer {
 
 // Scale bar
 function drawScaleBar(scaleBar, scaleLevel) {
-  if (!scaleBar.size() || scaleBar.style("display") === "none") return;
-  scaleBar.selectAll("*").remove(); // fully redraw every time
+  if (!scaleBar.node() || scaleBar.style("display") === "none") return;
 
+  // Compute values once
   const distanceScale = +distanceScaleInput.value;
   const unit = distanceUnitInput.value;
   const size = +barSizeInput.value;
-
-  // calculate size
-  const init = 100;
-  let val = (init * size * distanceScale) / scaleLevel; // bar length in distance unit
-  if (val > 900) val = rn(val, -3);
-  // round to 1000
-  else if (val > 90) val = rn(val, -2);
-  // round to 100
-  else if (val > 9) val = rn(val, -1);
-  // round to 10
-  else val = rn(val); // round to 1
-  const length = (val * scaleLevel) / distanceScale; // actual length in pixels on this scale
-
-  scaleBar
-    .append("line")
-    .attr("x1", 0.5)
-    .attr("y1", 0)
-    .attr("x2", length + size - 0.5)
-    .attr("y2", 0)
-    .attr("stroke-width", size)
-    .attr("stroke", "white");
-  scaleBar
-    .append("line")
-    .attr("x1", 0)
-    .attr("y1", size)
-    .attr("x2", length + size)
-    .attr("y2", size)
-    .attr("stroke-width", size)
-    .attr("stroke", "#3d3d3d");
-  const dash = size + " " + rn(length / 5 - size, 2);
-  scaleBar
-    .append("line")
-    .attr("x1", 0)
-    .attr("y1", 0)
-    .attr("x2", length + size)
-    .attr("y2", 0)
-    .attr("stroke-width", rn(size * 3, 2))
-    .attr("stroke-dasharray", dash)
-    .attr("stroke", "#3d3d3d");
-
+  const initLength = 100;
+  let val = (initLength * size * distanceScale) / scaleLevel;
+  val = roundScaleValue(val);
+  const length = (val * scaleLevel) / distanceScale;
   const fontSize = rn(5 * size, 1);
-  scaleBar
-    .selectAll("text")
-    .data(d3.range(0, 6))
-    .enter()
-    .append("text")
-    .attr("x", d => rn((d * length) / 5, 2))
-    .attr("y", 0)
-    .attr("dy", "-.6em")
-    .attr("font-size", fontSize)
-    .text(d => rn((((d * length) / 5) * distanceScale) / scaleLevel) + (d < 5 ? "" : " " + unit));
+  const dash = size + " " + rn(length / 5 - size, 2);
+
+  // Create a document fragment to batch append operations
+  const fragment = document.createDocumentFragment();
+
+  // Create and append elements to the fragment
+  const whiteLine = createLine(0.5, 0, length + size - 0.5, size, "white");
+  const blackLine = createLine(0, size, length + size, size, "#3d3d3d");
+  const dashedLine = createLine(0, 0, length + size, rn(size * 3, 2), "#3d3d3d", dash);
+  fragment.appendChild(whiteLine);
+  fragment.appendChild(blackLine);
+  fragment.appendChild(dashedLine);
+
+  const textElements = d3.range(0, 6).map(d => 
+    createText(rn((d * length) / 5, 2), 0, fontSize, getLabelText(d, length, distanceScale, scaleLevel, unit))
+  );
+  textElements.forEach(text => fragment.appendChild(text));
 
   if (barLabel.value !== "") {
-    scaleBar
-      .append("text")
-      .attr("x", (length + 1) / 2)
-      .attr("y", 2 * size)
-      .attr("dominant-baseline", "text-before-edge")
-      .attr("font-size", fontSize)
-      .text(barLabel.value);
+    const label = createText((length + 1) / 2, 2 * size, fontSize, barLabel.value, "text-before-edge");
+    fragment.appendChild(label);
   }
 
   const bbox = scaleBar.node().getBBox();
-  // append backbround rectangle
-  scaleBar
-    .insert("rect", ":first-child")
-    .attr("x", -10)
-    .attr("y", -20)
-    .attr("width", bbox.width + 10)
-    .attr("height", bbox.height + 15)
-    .attr("stroke-width", size)
-    .attr("stroke", "none")
-    .attr("filter", "url(#blur5)")
-    .attr("fill", barBackColor.value)
-    .attr("opacity", +barBackOpacity.value);
+  const background = createRect(-10, -20, bbox.width + 10, bbox.height + 15, size, barBackColor.value, +barBackOpacity.value);
+  fragment.appendChild(background);
+
+  // Clear previous content and append new elements
+  scaleBar.selectAll("*").remove();
+  scaleBar.node().appendChild(fragment);
+
+  
+  // Helper functions to create SVG elements
+  function createLine(x1, y1, x2, strokeWidth, stroke, dasharray) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    setAttributes(line, { x1, y1, x2, y2: y1, "stroke-width": strokeWidth, stroke, "stroke-dasharray": dasharray || null });
+    return line;
+  }
+
+  function createText(x, y, fontSize, text, baseline) {
+    const textElement = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    setAttributes(textElement, { x, y, dy: baseline ? "-.6em" : null, "font-size": fontSize, "dominant-baseline": baseline || null });
+    textElement.textContent = text;
+    return textElement;
+  }
+
+  function createRect(x, y, width, height, strokeWidth, fill, opacity) {
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    setAttributes(rect, { x, y, width, height, "stroke-width": strokeWidth, stroke: "none", filter: "url(#blur5)", fill, opacity });
+    return rect;
+  }
+
+  function setAttributes(element, attributes) {
+    for (const attr in attributes) {
+      if (attributes[attr] !== null) {
+        element.setAttribute(attr, attributes[attr]);
+      }
+    }
+  }
+
+  function roundScaleValue(value) {
+    if (value > 900) return rn(value, -3);
+    else if (value > 90) return rn(value, -2);
+    else if (value > 9) return rn(value, -1);
+    else return rn(value);
+  }
+
+  function getLabelText(d, length, distanceScale, scaleLevel, unit) {
+    return rn((((d * length) / 5) * distanceScale) / scaleLevel) + (d < 5 ? "" : " " + unit);
+  }
 }
 
 // fit ScaleBar to screen size
 function fitScaleBar(scaleBar, fullWidth, fullHeight) {
-  if (!scaleBar.select("rect").size() || scaleBar.style("display") === "none") return;
+  const rect = scaleBar.select("rect");
+  if (!rect.node() || scaleBar.style("display") === "none") return;
 
   const px = isNaN(+barPosX.value) ? 0.99 : barPosX.value / 100;
   const py = isNaN(+barPosY.value) ? 0.99 : barPosY.value / 100;
-  const bbox = scaleBar.select("rect").node().getBBox();
+  const bbox = rect.node().getBBox();
 
   const x = rn(fullWidth * px - bbox.width + 10);
   const y = rn(fullHeight * py - bbox.height + 20);
   scaleBar.attr("transform", `translate(${x},${y})`);
 }
+
