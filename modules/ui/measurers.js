@@ -568,15 +568,13 @@ function drawScaleBar(scaleBar, scaleLevel) {
     const label = createText((length + 1) / 2, 2 * size, fontSize, barLabel.value, "text-before-edge");
     fragment.appendChild(label);
   }
-
-  const bbox = scaleBar.node().getBBox();
-  const background = createRect(-10, -20, bbox.width + 10, bbox.height + 15, size, barBackColor.value, +barBackOpacity.value);
+  
+  const background = createRect(-10, -20, 15, 15, size, barBackColor.value, +barBackOpacity.value);
   fragment.appendChild(background);
-
+  
   // Clear previous content and append new elements
   scaleBar.selectAll("*").remove();
   scaleBar.node().appendChild(fragment);
-
   
   // Helper functions to create SVG elements
   function createLine(x1, y1, x2, strokeWidth, stroke, dasharray) {
